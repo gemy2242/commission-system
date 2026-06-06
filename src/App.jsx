@@ -22,12 +22,9 @@ const DEAL_TYPES = [
   { key:"existing_big",     label:"عميل قديم — صفقة كبيرة", icon:"💼", multiplier:0.5,  color:"#10b981", desc:"صفقة غير روتينية" },
   { key:"existing_routine", label:"عميل قديم — طلب روتيني", icon:"🔄", multiplier:0.25, color:"#f97316", desc:"طلب تلقائي" },
 ];
-const INIT_TARGET_TIERS = [
-  {id:1,from:0,  to:50,  commMultiplier:0   },
-  {id:2,from:50, to:80,  commMultiplier:0.5 },
-  {id:3,from:80, to:100, commMultiplier:0.75},
-  {id:4,from:100,to:null,commMultiplier:1.0 },
-];
+// التارجت الجديد: المعامل = نسبة الإنجاز بالظبط (متناسب)
+// أقل من 40% = صفر كوميشن
+const TARGET_MIN_PCT = 40; // الحد الأدنى للاستحقاق
 const INIT_TIERS = [
   {id:1,from:0,     to:50000, rate:2},
   {id:2,from:50000, to:100000,rate:3},
@@ -37,8 +34,15 @@ const ACQ_RATE=0.10, ACQ_MIN=100000;
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
 function calcBase(amt,tiers){let c=0,r=amt;for(const t of tiers){const mx=t.to!==null?t.to:Infinity;if(r<=0||amt<=t.from)break;const ap=Math.min(r,mx-t.from,amt-t.from);if(ap<=0)break;c+=ap*(t.rate/100);r-=ap;if(t.to===null)break;}return c;}
-function getTgtMult(p,tt){return[...tt].sort((a,b)=>b.from-a.from).find(t=>p>=t.from)?.commMultiplier??0;}
+// المعامل = نسبة الإنجاز مباشرة (أقل من 40% = صفر)
+function getTgtMult(achPct){ return achPct < TARGET_MIN_PCT ? 0 : Math.min(achPct/100, 1); }
 function getDT(k){return DEAL_TYPES.find(t=>t.key===k)||DEAL_TYPES[0];}
+// إيجاد الفترة النشطة للمندوب
+function getActivePeriod(periods, empId, month){
+  return periods.find(p=>p.empId===empId&&p.startMonth<=month&&(p.endMonth>=month||p.status==="active"||p.status==="extended"))||null;
+}
+// الشهر الحالي
+function currentMonth(){ return new Date().toISOString().slice(0,7); }
 function fmt(n){return n.toLocaleString("ar-EG",{minimumFractionDigits:0,maximumFractionDigits:0});}
 function pct(n){return`${Math.round(n)}%`;}
 function achClr(p){return p>=100?"#10b981":p>=80?"#f59e0b":p>=50?"#f97316":"#ef4444";}
@@ -85,7 +89,7 @@ function DealDetail({deal,agents,tiers,targetTiers,onClose}){
   const dt=getDT(deal.dealType);
   const full=deal.collected>=deal.saleValue;
   const achPct=deal._achPct??0;
-  const tMult=getTgtMult(achPct,targetTiers);
+  const tMult=getTgtMult(achPct);
   const base=full?calcBase(deal.collected,tiers):0;
   const afterDT=base*dt.multiplier;
   const finalC=afterDT*tMult;
@@ -228,7 +232,8 @@ export default function App(){
     unsubs.push(onSnapshot(collection(db,"deals"), snap=>{setDeals(snap.docs.map(d=>({...d.data(),id:d.id})));}));
     unsubs.push(onSnapshot(collection(db,"bonuses"),snap=>{const m={};snap.docs.forEach(d=>{m[d.id]={...d.data()};});setBonuses(m);}));
     unsubs.push(onSnapshot(collection(db,"requests"),snap=>{setRequests(snap.docs.map(d=>({...d.data(),id:d.id})));}));
-    unsubs.push(onSnapshot(doc(db,"settings","tiers"),snap=>{if(snap.exists()){const d=snap.data();if(d.tiers)setTiers(d.tiers);if(d.targetTiers)setTargetTiers(d.targetTiers);}}));
+    unsubs.push(onSnapshot(collection(db,"periods"),snap=>{setPeriods(snap.docs.map(d=>({...d.data(),id:d.id})));}));
+    unsubs.push(onSnapshot(doc(db,"settings","tiers"),snap=>{if(snap.exists()){const d=snap.data();if(d.tiers)setTiers(d.tiers);}}));
     Promise.all([getDocs(collection(db,"agents")),getDocs(collection(db,"deals"))]).then(()=>setLoading(false));
     return()=>unsubs.forEach(u=>u());
   },[]);
@@ -243,7 +248,7 @@ export default function App(){
     const dMonth=mOf(d.endDate);
     const monthlyC=deals.filter(x=>x.empId===d.empId&&mOf(x.endDate)===dMonth&&x.collected>=x.saleValue).reduce((s,x)=>s+x.collected,0);
     const achPct=((monthlyC)/(ag?.monthlyTarget||1))*100;
-    const tMult=getTgtMult(achPct,targetTiers);
+    const tMult=getTgtMult(achPct);
     const base=full?calcBase(d.collected,tiers):0;
     const afterDT=base*dt.multiplier;
     const finalC=afterDT*tMult;
@@ -267,7 +272,7 @@ export default function App(){
     const pendingComm=agD.filter(d=>d.eligible&&!d.paid).reduce((s,d)=>s+d.finalC,0);
     const monthlyC=filterMonth!=="الكل"?agD.filter(d=>d.collected>=d.saleValue).reduce((s,d)=>s+d.collected,0):0;
     const achPct=filterMonth!=="الكل"?(monthlyC/(ag.monthlyTarget||1))*100:0;
-    const tMult=getTgtMult(achPct,targetTiers);
+    const tMult=getTgtMult(achPct);
     const pendingBonus=Object.values(bonuses).filter(b=>b.empId===ag.empId&&!b.bonusPaid&&b.collected>=ACQ_MIN).reduce((s,b)=>s+b.collected*ACQ_RATE,0);
     return{...ag,totalSales,totalCollected,pendingComm,monthlyC,achPct,tMult,pendingBonus,deals:agD.length};
   }),[agents,enriched,filterMonth,targetTiers,bonuses]);
@@ -341,6 +346,42 @@ export default function App(){
   }
   async function rejectReq(id){await deleteDoc(doc(db,"requests",id));}
 
+  // ── Period actions ────────────────────────────────────────────────────────
+  async function startPeriod(empId, targetAmount){
+    const month = currentMonth();
+    const id = `period_${empId}_${month}`;
+    await setDoc(doc(db,"periods",id),{id, empId, startMonth:month, endMonth:month, targetAmount:+targetAmount, status:"active", createdAt:new Date().toISOString()});
+  }
+  async function extendPeriod(period){
+    // مد الفترة شهر إضافي — بيحتسب من شهر البداية الأصلي
+    const newEnd = new Date(period.endMonth+"-01");
+    newEnd.setMonth(newEnd.getMonth()+1);
+    const newEndMonth = newEnd.toISOString().slice(0,7);
+    await setDoc(doc(db,"periods",period.id),{...period, endMonth:newEndMonth, status:"extended"});
+    setShowPeriodMgr(null);
+  }
+  async function closePeriod(period){
+    // إغلاق الفترة — الكوميشن بيتحسب على اللي اتحصل بس، ولا يتجمع مع الجديد
+    await setDoc(doc(db,"periods",period.id),{...period, status:"closed", closedAt:new Date().toISOString()});
+    setShowPeriodMgr(null);
+  }
+  async function markPeriodFailed(period){
+    await setDoc(doc(db,"periods",period.id),{...period, status:"failed"});
+    setShowPeriodMgr(null);
+  }
+
+  // هل الفترة انتهت ومحتاجة قرار؟
+  function isPeriodExpired(period){
+    if(!period||period.status==="closed"||period.status==="failed") return false;
+    const now = currentMonth();
+    return period.endMonth < now;
+  }
+
+  // المندوبين اللي عندهم فترة منتهية محتاجة قرار
+  const expiredPeriods = useMemo(()=>
+    periods.filter(p=>isPeriodExpired(p)),
+  [periods]);
+
   const statusBadge=d=>{
     if(d.paid)return<span style={S.badge("paid")}>✓ مصروف</span>;
     if(!d.eligible&&d.collected>=d.saleValue&&d.tMult===0)return<span style={S.badge("notarget")}>🎯 تحت التارجت</span>;
@@ -400,6 +441,20 @@ export default function App(){
           <button key={k} onClick={()=>setTab(k)} style={{...S.navBtn(tab===k),...(k==="approvals"&&pendingCount>0?{background:tab===k?"#d97706":"#78350f",color:"#fbbf24"}:{})}}>{l}</button>
         ))}
       </div>
+
+      {/* تنبيه الفترات المنتهية */}
+      {isAdmin&&expiredPeriods.length>0&&(
+        <div style={{background:"#7f1d1d22",border:"1px solid #ef4444",borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <span style={{fontSize:20}}>⚠️</span>
+            <div>
+              <div style={{color:"#ef4444",fontWeight:700,fontSize:14}}>فترات تارجت منتهية تحتاج قرار</div>
+              <div style={{color:"#94a3b8",fontSize:12,marginTop:2}}>{expiredPeriods.length} مندوب انتهت فترة تارجته ولم يُتخذ قرار</div>
+            </div>
+          </div>
+          <button onClick={()=>setTab("agents")} style={{...S.payBtn,background:"#ef4444",padding:"8px 16px",fontSize:13}}>عرض المندوبين</button>
+        </div>
+      )}
 
       {/* DASHBOARD */}
       {tab==="dashboard"&&(
@@ -559,9 +614,10 @@ export default function App(){
                         <div style={{color:"#64748b",fontSize:12}}>التارجت: {fmt(a.monthlyTarget)} ج / شهر</div>
                       </div>
                     </div>
-                    {isAdmin&&<div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>setShowEditAgent({...a})} style={{...S.payBtn,background:"#1d4ed8"}}>✏️ تعديل</button>
-                      <button onClick={()=>delAgent(a.empId)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑 حذف</button>
+                    {isAdmin&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      <button onClick={()=>setShowEditAgent({...a})} style={{...S.payBtn,background:"#1d4ed8"}}>✏️</button>
+                      <button onClick={()=>delAgent(a.empId)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑</button>
+                      <button onClick={()=>setShowPeriodMgr(a)} style={{...S.payBtn,background:"#0f766e"}}>🎯 التارجت</button>
                     </div>}
                   </div>
 
@@ -579,6 +635,45 @@ export default function App(){
                       </div>
                     ))}
                   </div>
+
+                  {/* شريط حالة التارجت */}
+                  {(()=>{
+                    const curMonth=currentMonth();
+                    const activePeriod=periods.find(p=>p.empId===a.empId&&(p.status==="active"||p.status==="extended")&&p.startMonth<=curMonth&&p.endMonth>=curMonth);
+                    const expiredPeriod=periods.find(p=>p.empId===a.empId&&isPeriodExpired(p));
+                    const period=activePeriod||expiredPeriod;
+                    if(!period) return null;
+                    const periodDeals=enriched.filter(d=>d.empId===a.empId&&mOf(d.endDate)>=period.startMonth&&mOf(d.endDate)<=period.endMonth&&d.collected>=d.saleValue);
+                    const periodCollected=periodDeals.reduce((s,d)=>s+d.collected,0);
+                    const periodAch=(periodCollected/(period.targetAmount||1))*100;
+                    const isExpired=isPeriodExpired(period);
+                    const statusColor=isExpired?"#ef4444":period.status==="extended"?"#a78bfa":achClr(periodAch);
+                    const statusLabel=isExpired?"⚠️ فشل تحقيق التارجت":period.status==="extended"?"🔄 ممتد":period.status==="closed"?"✅ مغلق":"🎯 نشط";
+                    return(
+                      <div style={{borderTop:"1px solid #0f172a",padding:"12px 20px",background:isExpired?"#1a0505":period.status==="extended"?"#12052a":"transparent"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                            <span style={{color:statusColor,fontWeight:700,fontSize:13}}>{statusLabel}</span>
+                            <span style={{color:"#64748b",fontSize:12}}>{period.startMonth} → {period.endMonth}</span>
+                            {period.status==="extended"&&<span style={{background:"#7c3aed22",color:"#a78bfa",border:"1px solid #7c3aed",borderRadius:10,padding:"1px 8px",fontSize:11}}>ممتد</span>}
+                          </div>
+                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                            <span style={{color:statusColor,fontWeight:800,fontSize:15}}>{pct(Math.min(periodAch,100))}</span>
+                            <span style={{color:"#64748b",fontSize:12}}>{fmt(periodCollected)} / {fmt(period.targetAmount)} ج</span>
+                          </div>
+                        </div>
+                        <div style={{height:8,background:"#0f172a",borderRadius:99,overflow:"hidden",marginBottom:isExpired&&isAdmin?10:0}}>
+                          <div style={{height:"100%",width:`${Math.min(periodAch,100)}%`,background:statusColor,borderRadius:99,transition:"width 1s"}}/>
+                        </div>
+                        {isExpired&&isAdmin&&(
+                          <div style={{display:"flex",gap:8,marginTop:10}}>
+                            <button onClick={()=>extendPeriod(period)} style={{...S.payBtn,background:"#7c3aed",flex:1,textAlign:"center"}}>🔄 مد شهر إضافي</button>
+                            <button onClick={()=>closePeriod(period)} style={{...S.payBtn,background:"#ef4444",flex:1,textAlign:"center"}}>❌ إغلاق الفترة</button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* تفاصيل المعاملات */}
                   <div style={{padding:"16px 20px"}}>
@@ -690,16 +785,22 @@ export default function App(){
       {tab==="settings"&&isAdmin&&(
         <div style={{display:"flex",flexDirection:"column",gap:16}}>
           <div style={S.section}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-              <div style={S.sectionTitle}>📊 شرائح التارجت</div>
-              <button onClick={()=>{setEditTgtTiers(targetTiers);setShowTgtTierEd(true);}} style={S.payBtn}>تعديل</button>
+            <div style={S.sectionTitle}>📊 قاعدة احتساب التارجت</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {[
+                ["أقل من 40% إنجاز","صفر كوميشن","#ef4444"],
+                ["40% — 99% إنجاز","المعامل = نسبة الإنجاز بالظبط","#f59e0b"],
+                ["100%+ إنجاز","كوميشن كامل (×1.0)","#10b981"],
+              ].map(([l,v,c])=>(
+                <div key={l} style={{background:"#0f172a",borderRadius:12,padding:"12px 16px",borderRight:`4px solid ${c}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{color:"#e2e8f0",fontWeight:700}}>{l}</div>
+                  <div style={{color:c,fontWeight:700,fontSize:13}}>{v}</div>
+                </div>
+              ))}
             </div>
-            {targetTiers.map((t,i)=>{const c=["#ef4444","#f97316","#f59e0b","#10b981"][i]||"#8b5cf6";return(
-              <div key={t.id} style={{background:"#0f172a",borderRadius:12,padding:"12px 16px",marginBottom:8,borderRight:`4px solid ${c}`,display:"flex",justifyContent:"space-between"}}>
-                <div style={{color:"#e2e8f0",fontWeight:700}}>{t.from}% — {t.to!==null?`${t.to}%`:"ما فوق"}</div>
-                <div style={{fontSize:22,fontWeight:900,color:c}}>×{t.commMultiplier}</div>
-              </div>
-            );})}
+            <div style={{background:"#0c1a0c",border:"1px solid #16a34a44",borderRadius:10,padding:12,marginTop:10,color:"#86efac",fontSize:12}}>
+              💡 مثال: إنجاز 75% → معامل 0.75 · كوميشن أساسي 2,000 ج → كوميشن نهائي 1,500 ج
+            </div>
           </div>
           <div style={S.section}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -786,6 +887,64 @@ export default function App(){
               <div style={{background:"#2e1065",borderRadius:10,padding:12,marginBottom:12,color:"#a78bfa",fontWeight:700,textAlign:"center"}}>قيمة البونص = {fmt(+newBonus.collected*ACQ_RATE)} ج</div>
             )}
             <div style={{display:"flex",gap:10}}><button onClick={addBonus} style={{...S.btn,background:"#7c3aed"}}>تسجيل</button><button onClick={()=>setShowAddBonus(false)} style={{...S.btn,background:"#334155"}}>إلغاء</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Period Manager Modal */}
+      {showPeriodMgr&&isAdmin&&(
+        <div style={S.overlay} onClick={()=>setShowPeriodMgr(null)}>
+          <div style={{...S.modal,maxWidth:480}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={S.modalTitle}>🎯 إدارة التارجت — {showPeriodMgr.name}</div>
+              <button onClick={()=>setShowPeriodMgr(null)} style={{background:"#334155",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer"}}>✕</button>
+            </div>
+
+            {/* الفترات الموجودة */}
+            {periods.filter(p=>p.empId===showPeriodMgr.empId).sort((a,b)=>b.startMonth.localeCompare(a.startMonth)).map(p=>{
+              const pDeals=enriched.filter(d=>d.empId===p.empId&&mOf(d.endDate)>=p.startMonth&&mOf(d.endDate)<=p.endMonth&&d.collected>=d.saleValue);
+              const pCollected=pDeals.reduce((s,d)=>s+d.collected,0);
+              const pAch=(pCollected/(p.targetAmount||1))*100;
+              const expired=isPeriodExpired(p);
+              const statusColors={"active":"#10b981","extended":"#a78bfa","closed":"#64748b","failed":"#ef4444"};
+              const statusLabels={"active":"نشط","extended":"ممتد","closed":"مغلق","failed":"فشل"};
+              return(
+                <div key={p.id} style={{background:"#0f172a",borderRadius:12,padding:"14px 16px",marginBottom:10,borderRight:`3px solid ${statusColors[p.status]||"#334155"}`}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+                    <div>
+                      <span style={{color:statusColors[p.status],fontWeight:700,fontSize:13}}>{statusLabels[p.status]}</span>
+                      <span style={{color:"#64748b",fontSize:12,marginRight:8}}>{p.startMonth} → {p.endMonth}</span>
+                    </div>
+                    <span style={{color:achClr(pAch),fontWeight:700}}>{pct(Math.min(pAch,100))} · {fmt(pCollected)}/{fmt(p.targetAmount)} ج</span>
+                  </div>
+                  <div style={{height:6,background:"#1e293b",borderRadius:99,overflow:"hidden",marginBottom:expired?10:0}}>
+                    <div style={{height:"100%",width:`${Math.min(pAch,100)}%`,background:statusColors[p.status],borderRadius:99}}/>
+                  </div>
+                  {expired&&(
+                    <div style={{display:"flex",gap:8,marginTop:10}}>
+                      <button onClick={()=>extendPeriod(p)} style={{...S.payBtn,background:"#7c3aed",flex:1}}>🔄 مد شهر</button>
+                      <button onClick={()=>closePeriod(p)} style={{...S.payBtn,background:"#ef4444",flex:1}}>❌ إغلاق</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* إضافة فترة جديدة */}
+            {!periods.find(p=>p.empId===showPeriodMgr.empId&&(p.status==="active"||p.status==="extended"))&&(
+              <div style={{background:"#0f172a",borderRadius:12,padding:"14px 16px",marginTop:8}}>
+                <div style={{color:"#94a3b8",fontSize:13,fontWeight:700,marginBottom:10}}>+ تارجت جديد لشهر {currentMonth()}</div>
+                <div style={{marginBottom:10}}>
+                  <label style={S.label}>قيمة التارجت (ج)</label>
+                  <input type="number" id={`tgt_${showPeriodMgr.empId}`} defaultValue={showPeriodMgr.monthlyTarget} style={S.input} placeholder="قيمة التارجت"/>
+                </div>
+                <button onClick={()=>{
+                  const val=document.getElementById(`tgt_${showPeriodMgr.empId}`)?.value;
+                  if(val)startPeriod(showPeriodMgr.empId,val);
+                  setShowPeriodMgr(null);
+                }} style={{...S.btn,background:"#0f766e",width:"100%"}}>🎯 بدء التارجت</button>
+              </div>
+            )}
           </div>
         </div>
       )}
