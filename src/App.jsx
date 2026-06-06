@@ -529,34 +529,123 @@ export default function App(){
 
       {/* AGENTS */}
       {tab==="agents"&&(
-        <div style={S.section}>
+        <div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-            <div style={S.sectionTitle}>👥 المندوبين</div>
-            {isAdmin&&<button onClick={()=>setShowAddAgent(true)} style={{...S.btn,background:"#0f766e"}}>+ إضافة</button>}
+            <div style={{fontSize:18,fontWeight:700,color:"#f1f5f9"}}>👥 المندوبين</div>
+            {isAdmin&&<button onClick={()=>setShowAddAgent(true)} style={{...S.btn,background:"#0f766e"}}>+ إضافة مندوب</button>}
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
             {agents.map(a=>{
-              const sum=agentSummary.find(s=>s.empId===a.empId);
+              const agDeals=enriched.filter(d=>d.empId===a.empId&&(filterMonth==="الكل"||mOf(d.endDate)===filterMonth));
+              const agBonuses=bonusList.filter(b=>b.empId===a.empId);
+              const totalCommEarned  =agDeals.filter(d=>d.eligible||d.paid).reduce((s,d)=>s+d.finalC,0);
+              const totalCommPaid    =agDeals.filter(d=>d.paid).reduce((s,d)=>s+d.finalC,0);
+              const totalCommPending =agDeals.filter(d=>d.eligible&&!d.paid).reduce((s,d)=>s+d.finalC,0);
+              const totalBonusEarned =agBonuses.filter(b=>b.eligible).reduce((s,b)=>s+b.bonus,0);
+              const totalBonusPaid   =agBonuses.filter(b=>b.bonusPaid).reduce((s,b)=>s+b.bonus,0);
+              const totalBonusPending=agBonuses.filter(b=>b.eligible&&!b.bonusPaid).reduce((s,b)=>s+b.bonus,0);
+              const grandTotal  =totalCommEarned+totalBonusEarned;
+              const grandPaid   =totalCommPaid+totalBonusPaid;
+              const grandPending=totalCommPending+totalBonusPending;
               return(
-                <div key={a.empId} style={{background:"#0f172a",borderRadius:14,padding:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
-                  <div style={{display:"flex",gap:14,alignItems:"center"}}>
-                    <div style={{width:44,height:44,borderRadius:"50%",background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:800}}>{a.name.charAt(0)}</div>
-                    <div>
-                      <div style={{fontWeight:700,color:"#f1f5f9"}}>{a.name}</div>
-                      <div style={{color:"#a78bfa",fontSize:12}}>{a.empId}</div>
-                      <div style={{color:"#64748b",fontSize:12}}>التارجت: {fmt(a.monthlyTarget)} ج / شهر</div>
+                <div key={a.empId} style={{background:"#1e293b",borderRadius:16,overflow:"hidden"}}>
+                  {/* رأس المندوب */}
+                  <div style={{background:"#0f172a",padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
+                    <div style={{display:"flex",gap:14,alignItems:"center"}}>
+                      <div style={{width:48,height:48,borderRadius:"50%",background:"linear-gradient(135deg,#3b82f6,#8b5cf6)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:800,flexShrink:0}}>{a.name.charAt(0)}</div>
+                      <div>
+                        <div style={{fontWeight:800,color:"#f1f5f9",fontSize:16}}>{a.name}</div>
+                        <div style={{color:"#a78bfa",fontSize:12,marginTop:2}}>{a.empId}</div>
+                        <div style={{color:"#64748b",fontSize:12}}>التارجت: {fmt(a.monthlyTarget)} ج / شهر</div>
+                      </div>
                     </div>
+                    {isAdmin&&<div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>setShowEditAgent({...a})} style={{...S.payBtn,background:"#1d4ed8"}}>✏️ تعديل</button>
+                      <button onClick={()=>delAgent(a.empId)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑 حذف</button>
+                    </div>}
                   </div>
-                  <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
-                    {sum&&<>
-                      <div style={{textAlign:"center"}}><div style={{color:"#475569",fontSize:11}}>صفقات</div><div style={{color:"#e2e8f0",fontWeight:700}}>{sum.deals}</div></div>
-                      <div style={{textAlign:"center"}}><div style={{color:"#475569",fontSize:11}}>تحصيل</div><div style={{color:"#10b981",fontWeight:700}}>{fmt(sum.totalCollected)} ج</div></div>
-                      <div style={{textAlign:"center"}}><div style={{color:"#475569",fontSize:11}}>كوميشن</div><div style={{color:"#f59e0b",fontWeight:700}}>{fmt(sum.pendingComm)} ج</div></div>
-                    </>}
-                    {isAdmin&&<>
-                      <button onClick={()=>setShowEditAgent({...a})} style={{...S.payBtn,background:"#1d4ed8"}}>✏️</button>
-                      <button onClick={()=>delAgent(a.empId)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑</button>
-                    </>}
+
+                  {/* ملخص المستحقات */}
+                  <div style={{display:"flex",borderBottom:"1px solid #0f172a",flexWrap:"wrap"}}>
+                    {[
+                      ["إجمالي المستحقات",grandTotal,"#e2e8f0","💰"],
+                      ["مُصرَف",grandPaid,"#10b981","✅"],
+                      ["متبقي مستحق",grandPending,grandPending>0?"#f59e0b":"#475569","⏳"],
+                    ].map(([l,v,c,ic])=>(
+                      <div key={l} style={{flex:1,minWidth:130,padding:"14px 16px",textAlign:"center",borderLeft:"1px solid #0f172a"}}>
+                        <div style={{fontSize:18,marginBottom:4}}>{ic}</div>
+                        <div style={{color:"#64748b",fontSize:11,marginBottom:4}}>{l}</div>
+                        <div style={{color:c,fontSize:18,fontWeight:800}}>{fmt(v)} ج</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* تفاصيل المعاملات */}
+                  <div style={{padding:"16px 20px"}}>
+                    <div style={{color:"#94a3b8",fontSize:13,fontWeight:700,marginBottom:12}}>
+                      📋 تفاصيل المعاملات {filterMonth!=="الكل"?`— ${filterMonth}`:""}
+                    </div>
+
+                    {agDeals.length>0&&(
+                      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:agBonuses.length>0?16:0}}>
+                        {agDeals.map(d=>(
+                          <div key={d.id} style={{background:"#0f172a",borderRadius:10,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,borderRight:`3px solid ${d.paid?"#16a34a":d.eligible?"#f59e0b":d.dt.color}`}}>
+                            <div>
+                              <div style={{fontWeight:700,color:"#f1f5f9",fontSize:13}}>{d.project}</div>
+                              <div style={{color:"#64748b",fontSize:11,marginTop:2,display:"flex",gap:6,flexWrap:"wrap"}}>
+                                <span style={{color:d.dt.color}}>{d.dt.icon} {d.dt.label}</span>
+                                <span>📅 {d.endDate}</span>
+                              </div>
+                            </div>
+                            <div style={{display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+                              <div style={{textAlign:"center"}}>
+                                <div style={{color:"#475569",fontSize:10}}>التحصيل</div>
+                                <div style={{color:"#10b981",fontWeight:700,fontSize:13}}>{fmt(d.collected)} ج</div>
+                              </div>
+                              <div style={{textAlign:"center"}}>
+                                <div style={{color:"#475569",fontSize:10}}>الكوميشن</div>
+                                <div style={{color:d.eligible||d.paid?"#f59e0b":"#475569",fontWeight:800,fontSize:14}}>{d.collected>=d.saleValue?`${fmt(d.finalC)} ج`:"—"}</div>
+                              </div>
+                              {d.paid?<span style={S.badge("paid")}>✓ مصروف</span>
+                                :d.eligible?<span style={S.badge("ready")}>⚡ مستحق</span>
+                                :d.tMult===0&&d.collected>=d.saleValue?<span style={S.badge("notarget")}>🎯 تحت التارجت</span>
+                                :<span style={S.badge("pending")}>⏳ جاري</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {agBonuses.length>0&&(
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        <div style={{color:"#a78bfa",fontSize:12,fontWeight:700,marginBottom:4}}>🌟 بونص الإحضار</div>
+                        {agBonuses.map(b=>(
+                          <div key={b.code} style={{background:"#0f172a",borderRadius:10,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,borderRight:`3px solid ${b.bonusPaid?"#16a34a":b.eligible?"#7c3aed":"#334155"}`}}>
+                            <div>
+                              <div style={{fontWeight:700,color:"#f1f5f9",fontSize:13}}>{b.clientName}</div>
+                              <div style={{color:"#64748b",fontSize:11,marginTop:2}}>كود: <span style={{color:"#a78bfa"}}>{b.code}</span></div>
+                            </div>
+                            <div style={{display:"flex",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+                              <div style={{textAlign:"center"}}>
+                                <div style={{color:"#475569",fontSize:10}}>التحصيل</div>
+                                <div style={{color:"#10b981",fontWeight:700,fontSize:13}}>{fmt(b.collected)} ج</div>
+                              </div>
+                              <div style={{textAlign:"center"}}>
+                                <div style={{color:"#475569",fontSize:10}}>البونص (10%)</div>
+                                <div style={{color:b.eligible?"#a78bfa":"#475569",fontWeight:800,fontSize:14}}>{b.eligible?`${fmt(b.bonus)} ج`:"—"}</div>
+                              </div>
+                              {b.bonusPaid?<span style={S.badge("paid")}>✓ مصروف</span>
+                                :b.eligible?<span style={S.badge("bonus")}>🌟 مستحق</span>
+                                :<span style={S.badge("notarget")}>⚠️ تحت الحد</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {agDeals.length===0&&agBonuses.length===0&&(
+                      <div style={{textAlign:"center",color:"#475569",padding:"20px 0",fontSize:13}}>لا توجد معاملات مسجَّلة</div>
+                    )}
                   </div>
                 </div>
               );
