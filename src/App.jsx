@@ -1,9 +1,33 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
+// ══════════════════════════════════════════════════════════════════════════════
+// AUTH — الباسورد مشفر بـ SHA-256 + salt ثابت
+// لتغيير الباسورد: استخدم أي SHA-256 calculator على النت
+// salt: "RhythmIS2026"  →  hash(salt + password)
+// ══════════════════════════════════════════════════════════════════════════════
+const SALT = "RhythmIS2026";
+
+// admin / admin
+const USERS = [
+  { username: "admin", role: "admin",    name: "Gamal Hussein",
+    hash: "daf8d15a3f67b639f9a96f15bd6d8039fe4e5e628e64d80b9c94a1c89fad2d39" },
+  // لإضافة موظف: { username: "emp1", role: "employee", name: "أحمد سامي", hash: "..." }
+  // احسب الهاش من: sha256("RhythmIS2026" + "الباسورد")
+];
+
+async function hashPass(pass) {
+  const msgBuffer = new TextEncoder().encode(SALT + pass);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════════════════════════════
 const DEAL_TYPES = [
-  { key: "new_client",       label: "عميل جديد",              icon: "🌟", multiplier: 1.0,  color: "#3b82f6", desc: "أول صفقة — سيُحوَّل لعميل قديم بعد التكويد" },
-  { key: "existing_big",     label: "عميل قديم — صفقة كبيرة", icon: "💼", multiplier: 0.5,  color: "#10b981", desc: "عميل موجود — صفقة غير روتينية أو كبيرة" },
-  { key: "existing_routine", label: "عميل قديم — طلب روتيني", icon: "🔄", multiplier: 0.25, color: "#f97316", desc: "طلب تلقائي متكرر" },
+  { key:"new_client",       label:"عميل جديد",              icon:"🌟", multiplier:1.0,  color:"#3b82f6", desc:"أول صفقة — سيُحوَّل لعميل قديم بعد التكويد" },
+  { key:"existing_big",     label:"عميل قديم — صفقة كبيرة", icon:"💼", multiplier:0.5,  color:"#10b981", desc:"عميل موجود — صفقة غير روتينية أو كبيرة" },
+  { key:"existing_routine", label:"عميل قديم — طلب روتيني", icon:"🔄", multiplier:0.25, color:"#f97316", desc:"طلب تلقائي متكرر" },
 ];
 
 const INITIAL_TARGET_TIERS = [
@@ -40,11 +64,13 @@ const INITIAL_ACQ = {
   "C-2024": { empId:"EMP-003", clientName:"شركة الدلتا", collected:200000, bonusPaid:false },
 };
 
-// ── helpers ────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
 function calcBase(amount, tiers) {
-  let c=0, r=amount;
+  let c=0,r=amount;
   for (const t of tiers) {
-    const mx = t.to!==null?t.to:Infinity;
+    const mx=t.to!==null?t.to:Infinity;
     if (r<=0||amount<=t.from) break;
     const ap=Math.min(r,mx-t.from,amount-t.from);
     if (ap<=0) break;
@@ -61,26 +87,85 @@ function achClr(p) { return p>=100?"#10b981":p>=80?"#f59e0b":p>=50?"#f97316":"#e
 function mOf(d)    { return d?d.slice(0,7):""; }
 function getMths(deals) { return [...new Set(deals.map(d=>mOf(d.endDate)).filter(Boolean))].sort().reverse(); }
 
-// ── شاشة تفاصيل الصفقة ─────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// LOGIN SCREEN
+// ══════════════════════════════════════════════════════════════════════════════
+function LoginScreen({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+
+  async function handleLogin() {
+    setLoading(true); setError("");
+    const h = await hashPass(password);
+    const user = USERS.find(u => u.username === username && u.hash === h);
+    if (user) { onLogin(user); }
+    else { setError("اسم المستخدم أو كلمة المرور غلط"); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ background:"#0f172a", minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Cairo','Segoe UI',sans-serif", direction:"rtl" }}>
+      <div style={{ background:"#1e293b", borderRadius:20, padding:"40px 36px", width:"100%", maxWidth:380, boxShadow:"0 25px 60px #00000066" }}>
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={{ fontSize:40, marginBottom:12 }}>🏆</div>
+          <div style={{ fontSize:22, fontWeight:800, color:"#f1f5f9" }}>نظام الكوميشنز</div>
+          <div style={{ fontSize:12, color:"#64748b", marginTop:4 }}>Rhythm Integrated Solutions</div>
+        </div>
+
+        <div style={{ marginBottom:14 }}>
+          <label style={{ display:"block", fontSize:12, color:"#94a3b8", marginBottom:6 }}>اسم المستخدم</label>
+          <input
+            type="text" value={username}
+            onChange={e=>setUsername(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+            style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:10, color:"#e2e8f0", padding:"11px 14px", width:"100%", fontFamily:"inherit", fontSize:14, boxSizing:"border-box" }}
+            placeholder="username"
+          />
+        </div>
+
+        <div style={{ marginBottom:20 }}>
+          <label style={{ display:"block", fontSize:12, color:"#94a3b8", marginBottom:6 }}>كلمة المرور</label>
+          <input
+            type="password" value={password}
+            onChange={e=>setPassword(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+            style={{ background:"#0f172a", border:"1px solid #334155", borderRadius:10, color:"#e2e8f0", padding:"11px 14px", width:"100%", fontFamily:"inherit", fontSize:14, boxSizing:"border-box" }}
+            placeholder="••••••••"
+          />
+        </div>
+
+        {error && <div style={{ background:"#7f1d1d22", border:"1px solid #ef444444", borderRadius:8, padding:"8px 12px", color:"#ef4444", fontSize:13, marginBottom:16, textAlign:"center" }}>{error}</div>}
+
+        <button onClick={handleLogin} disabled={loading}
+          style={{ background:"#3b82f6", color:"#fff", border:"none", borderRadius:10, padding:"12px", width:"100%", fontFamily:"inherit", fontWeight:700, fontSize:15, cursor:"pointer", opacity:loading?0.7:1 }}>
+          {loading ? "جاري التحقق..." : "دخول"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DEAL DETAIL
+// ══════════════════════════════════════════════════════════════════════════════
 function DealDetail({ deal, agents, tiers, targetTiers, onClose }) {
   const ag   = agents.find(a=>a.empId===deal.empId);
   const dt   = getDT(deal.dealType);
   const full = deal.collected >= deal.saleValue;
-
-  // تحصيل المندوب في شهر انتهاء الصفقة
-  const tgt    = ag?.monthlyTarget||1;
   const achPct = deal._achPct ?? 0;
   const tMult  = getTgtMult(achPct, targetTiers);
   const base   = full ? calcBase(deal.collected, tiers) : 0;
   const afterDT= base * dt.multiplier;
   const finalC = afterDT * tMult;
+  const tgt    = ag?.monthlyTarget||1;
 
-  // شرائح تفصيلية
   const tierBreakdown = [];
   if (full) {
-    let rem = deal.collected;
+    let rem=deal.collected;
     for (const t of tiers) {
-      const mx = t.to!==null?t.to:Infinity;
+      const mx=t.to!==null?t.to:Infinity;
       if (rem<=0||deal.collected<=t.from) break;
       const ap=Math.min(rem,mx-t.from,deal.collected-t.from);
       if (ap<=0) break;
@@ -90,10 +175,10 @@ function DealDetail({ deal, agents, tiers, targetTiers, onClose }) {
     }
   }
 
-  const Row = ({label, value, color="#e2e8f0", bold=false, big=false}) => (
-    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", borderBottom:"1px solid #0f172a" }}>
+  const Row = ({label,value,color="#e2e8f0",bold=false}) => (
+    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 14px", borderBottom:"1px solid #0f172a" }}>
       <span style={{ color:"#94a3b8", fontSize:13 }}>{label}</span>
-      <span style={{ color, fontWeight:bold?800:500, fontSize:big?20:14 }}>{value}</span>
+      <span style={{ color, fontWeight:bold?800:500, fontSize:14 }}>{value}</span>
     </div>
   );
 
@@ -102,82 +187,108 @@ function DealDetail({ deal, agents, tiers, targetTiers, onClose }) {
       <div style={{ ...S.modal, maxWidth:520 }} onClick={e=>e.stopPropagation()}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
           <div style={S.modalTitle}>📊 تفاصيل الحساب</div>
-          <button onClick={onClose} style={{ background:"#334155",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer" }}>✕ إغلاق</button>
+          <button onClick={onClose} style={{ background:"#334155",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",cursor:"pointer" }}>✕</button>
         </div>
 
-        {/* بيانات الصفقة */}
-        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:16, overflow:"hidden" }}>
+        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:14, overflow:"hidden" }}>
           <div style={{ background:dt.color+"22", borderBottom:`2px solid ${dt.color}`, padding:"10px 14px" }}>
-            <div style={{ fontWeight:800, fontSize:16, color:"#f1f5f9" }}>{deal.project}</div>
-            <div style={{ color:"#94a3b8", fontSize:12, marginTop:3 }}>
-              {dt.icon} {dt.label} &nbsp;·&nbsp; 👤 {ag?.name} ({ag?.empId}) &nbsp;·&nbsp; 📅 {deal.startDate} ← {deal.endDate}
-            </div>
+            <div style={{ fontWeight:800, fontSize:15, color:"#f1f5f9" }}>{deal.project}</div>
+            <div style={{ color:"#94a3b8", fontSize:12, marginTop:3 }}>{dt.icon} {dt.label} · 👤 {ag?.name} · 📅 {deal.startDate} ← {deal.endDate}</div>
           </div>
           <Row label="قيمة البيع"     value={`${fmt(deal.saleValue)} ج`} />
           <Row label="المحصَّل فعلياً" value={`${fmt(deal.collected)} ج`} color="#10b981" bold />
           <Row label="نسبة التحصيل"   value={pct((deal.collected/deal.saleValue)*100)} color={full?"#10b981":"#f97316"} />
         </div>
 
-        {/* خطوة ١: الشرائح */}
-        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:16, overflow:"hidden" }}>
-          <div style={{ padding:"10px 14px", background:"#1e3a5f", borderBottom:"1px solid #1e293b" }}>
-            <span style={{ color:"#60a5fa", fontWeight:700 }}>الخطوة ١ — العمولة الأساسية (الشرائح)</span>
+        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:14, overflow:"hidden" }}>
+          <div style={{ padding:"9px 14px", background:"#1e3a5f", borderBottom:"1px solid #1e293b" }}>
+            <span style={{ color:"#60a5fa", fontWeight:700, fontSize:13 }}>الخطوة ١ — العمولة الأساسية (الشرائح)</span>
           </div>
-          {full ? (
-            <>
-              {tierBreakdown.map((t,i) => (
-                <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"8px 14px", borderBottom:"1px solid #1e293b", fontSize:13 }}>
-                  <span style={{ color:"#64748b" }}>{t.range} ج &nbsp;→&nbsp; {fmt(t.amount)} ج × {t.rate}%</span>
-                  <span style={{ color:"#c084fc", fontWeight:700 }}>{fmt(t.comm)} ج</span>
-                </div>
-              ))}
-              <Row label="مجموع العمولة الأساسية" value={`${fmt(base)} ج`} color="#c084fc" bold />
-            </>
-          ) : (
-            <div style={{ padding:"12px 14px", color:"#475569", fontSize:13 }}>⏳ لم يكتمل التحصيل بعد</div>
-          )}
+          {full ? <>
+            {tierBreakdown.map((t,i)=>(
+              <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"8px 14px", borderBottom:"1px solid #1e293b", fontSize:12 }}>
+                <span style={{ color:"#64748b" }}>{t.range} ج · {fmt(t.amount)} ج × {t.rate}%</span>
+                <span style={{ color:"#c084fc", fontWeight:700 }}>{fmt(t.comm)} ج</span>
+              </div>
+            ))}
+            <Row label="مجموع العمولة الأساسية" value={`${fmt(base)} ج`} color="#c084fc" bold />
+          </> : <div style={{ padding:"12px 14px", color:"#475569", fontSize:13 }}>⏳ لم يكتمل التحصيل</div>}
         </div>
 
-        {/* خطوة ٢: نوع الصفقة */}
-        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:16, overflow:"hidden" }}>
-          <div style={{ padding:"10px 14px", background:"#1e3a5f", borderBottom:"1px solid #1e293b" }}>
-            <span style={{ color:"#60a5fa", fontWeight:700 }}>الخطوة ٢ — معامل نوع الصفقة</span>
+        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:14, overflow:"hidden" }}>
+          <div style={{ padding:"9px 14px", background:"#1e3a5f", borderBottom:"1px solid #1e293b" }}>
+            <span style={{ color:"#60a5fa", fontWeight:700, fontSize:13 }}>الخطوة ٢ — معامل نوع الصفقة</span>
           </div>
-          <Row label="نوع الصفقة"     value={`${dt.icon} ${dt.label}`} />
-          <Row label="المعامل"         value={`× ${dt.multiplier} (${dt.multiplier*100}%)`} color={dt.color} bold />
+          <Row label="نوع الصفقة"       value={`${dt.icon} ${dt.label}`} />
+          <Row label="المعامل"           value={`× ${dt.multiplier} (${dt.multiplier*100}%)`} color={dt.color} bold />
           <Row label="العمولة بعد النوع" value={full?`${fmt(afterDT)} ج`:"—"} color="#a78bfa" bold />
         </div>
 
-        {/* خطوة ٣: التارجت */}
-        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:16, overflow:"hidden" }}>
-          <div style={{ padding:"10px 14px", background:"#1e3a5f", borderBottom:"1px solid #1e293b" }}>
-            <span style={{ color:"#60a5fa", fontWeight:700 }}>الخطوة ٣ — معامل التارجت الشهري</span>
+        <div style={{ background:"#0f172a", borderRadius:12, marginBottom:14, overflow:"hidden" }}>
+          <div style={{ padding:"9px 14px", background:"#1e3a5f", borderBottom:"1px solid #1e293b" }}>
+            <span style={{ color:"#60a5fa", fontWeight:700, fontSize:13 }}>الخطوة ٣ — معامل التارجت الشهري</span>
           </div>
-          <Row label="التارجت الشهري"  value={`${fmt(tgt)} ج`} />
-          <Row label="نسبة الإنجاز"    value={pct(achPct)} color={achClr(achPct)} bold />
-          <Row label="معامل التارجت"    value={`× ${tMult}`} color={achClr(achPct)} bold />
-          {tMult === 0 && <div style={{ padding:"8px 14px", color:"#ef4444", fontSize:12 }}>⚠️ الإنجاز أقل من 50% — لا عمولة هذا الشهر</div>}
+          <Row label="التارجت الشهري" value={`${fmt(tgt)} ج`} />
+          <Row label="نسبة الإنجاز"   value={pct(achPct)} color={achClr(achPct)} bold />
+          <Row label="معامل التارجت"   value={`× ${tMult}`} color={achClr(achPct)} bold />
+          {tMult===0&&<div style={{ padding:"8px 14px", color:"#ef4444", fontSize:12 }}>⚠️ الإنجاز أقل من 50% — لا عمولة</div>}
         </div>
 
-        {/* النتيجة النهائية */}
-        <div style={{ background: finalC > 0 ? "#1a2f0a" : "#1a0a0a", border:`2px solid ${finalC>0?"#f59e0b":"#475569"}`, borderRadius:12, padding:16, textAlign:"center" }}>
+        <div style={{ background:finalC>0?"#1a2f0a":"#1a0a0a", border:`2px solid ${finalC>0?"#f59e0b":"#475569"}`, borderRadius:12, padding:16, textAlign:"center" }}>
           <div style={{ color:"#94a3b8", fontSize:12, marginBottom:6 }}>العمولة النهائية المستحقة</div>
-          <div style={{ color: finalC>0?"#f59e0b":"#475569", fontSize:28, fontWeight:900 }}>
-            {full ? `${fmt(finalC)} ج` : "⏳ في الانتظار"}
-          </div>
-          {full && (
-            <div style={{ color:"#64748b", fontSize:11, marginTop:8 }}>
-              {fmt(base)} × {dt.multiplier} × {tMult} = {fmt(finalC)} ج
-            </div>
-          )}
+          <div style={{ color:finalC>0?"#f59e0b":"#475569", fontSize:28, fontWeight:900 }}>{full?`${fmt(finalC)} ج`:"⏳ في الانتظار"}</div>
+          {full&&<div style={{ color:"#64748b", fontSize:11, marginTop:8 }}>{fmt(base)} × {dt.multiplier} × {tMult} = {fmt(finalC)} ج</div>}
         </div>
       </div>
     </div>
   );
 }
 
-// ── المكوّن الرئيسي ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// DEAL FORM (shared add/edit)
+// ══════════════════════════════════════════════════════════════════════════════
+function DealForm({ data, setData, onSave, onClose, title, agents }) {
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div style={S.modal} onClick={e=>e.stopPropagation()}>
+        <div style={S.modalTitle}>{title}</div>
+        <div style={{ marginBottom:10 }}>
+          <label style={S.label}>المندوب</label>
+          <select value={data.empId} onChange={e=>setData({...data,empId:e.target.value})} style={S.input}>
+            <option value="">اختر المندوب</option>
+            {agents.map(a=><option key={a.empId} value={a.empId}>{a.empId} — {a.name}</option>)}
+          </select>
+        </div>
+        {[["project","اسم المشروع","text"],["saleValue","قيمة البيع (ج)","number"],["collected","المحصَّل (ج)","number"],["startDate","تاريخ البداية","date"],["endDate","تاريخ النهاية","date"],["clientCode","كود العميل (اختياري)","text"]].map(([k,l,t])=>(
+          <div key={k} style={{ marginBottom:10 }}>
+            <label style={S.label}>{l}</label>
+            <input type={t} value={data[k]||""} onChange={e=>setData({...data,[k]:e.target.value})} style={S.input} placeholder={l} />
+          </div>
+        ))}
+        <div style={{ marginBottom:14 }}>
+          <label style={S.label}>نوع الصفقة</label>
+          {DEAL_TYPES.map(dt=>(
+            <div key={dt.key} onClick={()=>setData({...data,dealType:dt.key})}
+              style={{ background:data.dealType===dt.key?dt.color+"22":"#0f172a", border:`2px solid ${data.dealType===dt.key?dt.color:"#334155"}`, borderRadius:10, padding:"8px 12px", cursor:"pointer", marginTop:6 }}>
+              <div style={{ color:data.dealType===dt.key?dt.color:"#e2e8f0", fontWeight:700, fontSize:13 }}>{dt.icon} {dt.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onSave} style={S.btn}>حفظ</button>
+          <button onClick={onClose} style={{...S.btn,background:"#334155"}}>إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN APP
+// ══════════════════════════════════════════════════════════════════════════════
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+
   const [agents,      setAgents]      = useState(INITIAL_AGENTS);
   const [deals,       setDeals]       = useState(INITIAL_DEALS);
   const [tiers,       setTiers]       = useState(INITIAL_TIERS);
@@ -185,26 +296,33 @@ export default function App() {
   const [acqBonuses,  setAcqBonuses]  = useState(INITIAL_ACQ);
   const [paidDeals,   setPaidDeals]   = useState(new Set());
 
+  // طلبات الموافقة المعلّقة
+  const [pendingRequests, setPendingRequests] = useState([]);
+  // { id, type: "edit_deal"|"delete_deal"|"edit_bonus"|"delete_bonus", payload, requestedBy, requestedAt, targetId }
+
   const [tab,         setTab]         = useState("dashboard");
   const [filterMonth, setFilterMonth] = useState("الكل");
   const [filterEmp,   setFilterEmp]   = useState("الكل");
   const [filterType,  setFilterType]  = useState("الكل");
 
-  const [showAddDeal,   setShowAddDeal]   = useState(false);
-  const [showEditDeal,  setShowEditDeal]  = useState(null);
-  const [showDealDetail,setShowDealDetail]= useState(null);
-  const [showAddAgent,  setShowAddAgent]  = useState(false);
-  const [showEditAgent, setShowEditAgent] = useState(null);
-  const [showAddBonus,  setShowAddBonus]  = useState(false);
-  const [showTierEd,    setShowTierEd]    = useState(false);
-  const [showTgtTierEd, setShowTgtTierEd] = useState(false);
-  const [editTiers,     setEditTiers]     = useState(tiers);
-  const [editTgtTiers,  setEditTgtTiers]  = useState(targetTiers);
+  const [showAddDeal,    setShowAddDeal]    = useState(false);
+  const [showEditDeal,   setShowEditDeal]   = useState(null);
+  const [showDealDetail, setShowDealDetail] = useState(null);
+  const [showAddAgent,   setShowAddAgent]   = useState(false);
+  const [showEditAgent,  setShowEditAgent]  = useState(null);
+  const [showAddBonus,   setShowAddBonus]   = useState(false);
+  const [showEditBonus,  setShowEditBonus]  = useState(null);
+  const [showTierEd,     setShowTierEd]     = useState(false);
+  const [showTgtTierEd,  setShowTgtTierEd]  = useState(false);
+  const [editTiers,      setEditTiers]      = useState(tiers);
+  const [editTgtTiers,   setEditTgtTiers]   = useState(targetTiers);
 
   const emptyDeal = { empId:"", project:"", dealType:"new_client", saleValue:"", collected:"", startDate:new Date().toISOString().slice(0,10), endDate:new Date().toISOString().slice(0,10), clientCode:"" };
   const [newDeal,  setNewDeal]  = useState(emptyDeal);
   const [newBonus, setNewBonus] = useState({ clientCode:"", clientName:"", empId:"", collected:"" });
   const [newAgent, setNewAgent] = useState({ empId:"", name:"", monthlyTarget:"" });
+
+  const isAdmin = currentUser?.role === "admin";
 
   const months = useMemo(() => getMths(deals), [deals]);
 
@@ -260,15 +378,41 @@ export default function App() {
     pendingBonus:bonusList.filter(b=>b.eligible&&!b.bonusPaid).reduce((s,b)=>s+b.bonus,0),
   }), [filtered, bonusList]);
 
+  // ── actions ──────────────────────────────────────────────────────────────
+  function requestOrDo(type, targetId, payload, directAction) {
+    if (isAdmin) { directAction(); }
+    else {
+      setPendingRequests(prev => [...prev, {
+        id: Date.now(), type, targetId, payload,
+        requestedBy: currentUser.name, requestedAt: new Date().toLocaleString("ar-EG"),
+      }]);
+      alert("✅ تم إرسال الطلب للمدير للمراجعة");
+    }
+  }
+
   function addDeal()   { if(!newDeal.empId||!newDeal.project||!newDeal.saleValue) return; setDeals([...deals,{...newDeal,id:Date.now(),saleValue:+newDeal.saleValue,collected:+newDeal.collected||0}]); setNewDeal(emptyDeal); setShowAddDeal(false); }
-  function saveDeal(d) { setDeals(deals.map(x=>x.id===d.id?{...d,saleValue:+d.saleValue,collected:+d.collected}:x)); setShowEditDeal(null); }
-  function delDeal(id) { if(!window.confirm("حذف الصفقة؟")) return; setDeals(deals.filter(d=>d.id!==id)); }
   function addAgent()  { if(!newAgent.empId||!newAgent.name||!newAgent.monthlyTarget) return; setAgents([...agents,{...newAgent,monthlyTarget:+newAgent.monthlyTarget}]); setNewAgent({empId:"",name:"",monthlyTarget:""}); setShowAddAgent(false); }
+  function addBonus()  { if(!newBonus.clientCode||!newBonus.empId||!newBonus.collected||!newBonus.clientName) return; setAcqBonuses({...acqBonuses,[newBonus.clientCode]:{empId:newBonus.empId,clientName:newBonus.clientName,collected:+newBonus.collected,bonusPaid:false}}); setNewBonus({clientCode:"",clientName:"",empId:"",collected:""}); setShowAddBonus(false); }
+
+  function handleEditDeal(d)   { requestOrDo("edit_deal",   d.id,   d,    ()=>{ setDeals(deals.map(x=>x.id===d.id?{...d,saleValue:+d.saleValue,collected:+d.collected}:x)); setShowEditDeal(null); }); if(!isAdmin) setShowEditDeal(null); }
+  function handleDeleteDeal(id){ requestOrDo("delete_deal", id,     null, ()=>setDeals(deals.filter(d=>d.id!==id))); }
+  function handleEditBonus(code,data) { requestOrDo("edit_bonus",   code, data, ()=>{ setAcqBonuses({...acqBonuses,[code]:{...acqBonuses[code],...data,collected:+data.collected}}); setShowEditBonus(null); }); if(!isAdmin) setShowEditBonus(null); }
+  function handleDeleteBonus(code)    { requestOrDo("delete_bonus", code, null, ()=>{ const nb={...acqBonuses}; delete nb[code]; setAcqBonuses(nb); }); }
+
   function saveAgent(a){ setAgents(agents.map(x=>x.empId===a.empId?{...a,monthlyTarget:+a.monthlyTarget}:x)); setShowEditAgent(null); }
   function delAgent(id){ if(!window.confirm("حذف المندوب؟")) return; setAgents(agents.filter(a=>a.empId!==id)); }
-  function addBonus()  { if(!newBonus.clientCode||!newBonus.empId||!newBonus.collected||!newBonus.clientName) return; setAcqBonuses({...acqBonuses,[newBonus.clientCode]:{empId:newBonus.empId,clientName:newBonus.clientName,collected:+newBonus.collected,bonusPaid:false}}); setNewBonus({clientCode:"",clientName:"",empId:"",collected:""}); setShowAddBonus(false); }
   function markPaid(id)       { setPaidDeals(p=>{const s=new Set(p);s.add(id);return s;}); }
   function markBonusPaid(code){ setAcqBonuses(p=>({...p,[code]:{...p[code],bonusPaid:true}})); }
+
+  // admin approves/rejects requests
+  function approveRequest(req) {
+    if (req.type==="edit_deal")    setDeals(deals.map(x=>x.id===req.targetId?{...req.payload,saleValue:+req.payload.saleValue,collected:+req.payload.collected}:x));
+    if (req.type==="delete_deal")  setDeals(deals.filter(d=>d.id!==req.targetId));
+    if (req.type==="edit_bonus")   setAcqBonuses({...acqBonuses,[req.targetId]:{...acqBonuses[req.targetId],...req.payload,collected:+req.payload.collected}});
+    if (req.type==="delete_bonus") { const nb={...acqBonuses}; delete nb[req.targetId]; setAcqBonuses(nb); }
+    setPendingRequests(prev=>prev.filter(r=>r.id!==req.id));
+  }
+  function rejectRequest(id) { setPendingRequests(prev=>prev.filter(r=>r.id!==id)); }
 
   const statusBadge = d => {
     if (d.paid)    return <span style={S.badge("paid")}>✓ مصروف</span>;
@@ -277,42 +421,9 @@ export default function App() {
     return           <span style={S.badge("pending")}>⏳ جاري</span>;
   };
 
-  // ── modal للإدخال: صفقة (إضافة أو تعديل) ───────────────────────────────
-  function DealForm({ data, setData, onSave, onClose, title }) {
-    return (
-      <div style={S.overlay} onClick={onClose}>
-        <div style={S.modal} onClick={e=>e.stopPropagation()}>
-          <div style={S.modalTitle}>{title}</div>
-          <div style={{ marginBottom:10 }}>
-            <label style={S.label}>المندوب</label>
-            <select value={data.empId} onChange={e=>setData({...data,empId:e.target.value})} style={S.input}>
-              <option value="">اختر المندوب</option>
-              {agents.map(a=><option key={a.empId} value={a.empId}>{a.empId} — {a.name}</option>)}
-            </select>
-          </div>
-          {[["project","اسم المشروع","text"],["saleValue","قيمة البيع (ج)","number"],["collected","المحصَّل (ج)","number"],["startDate","تاريخ البداية","date"],["endDate","تاريخ النهاية","date"],["clientCode","كود العميل (اختياري)","text"]].map(([k,l,t])=>(
-            <div key={k} style={{ marginBottom:10 }}>
-              <label style={S.label}>{l}</label>
-              <input type={t} value={data[k]||""} onChange={e=>setData({...data,[k]:e.target.value})} style={S.input} placeholder={l} />
-            </div>
-          ))}
-          <div style={{ marginBottom:14 }}>
-            <label style={S.label}>نوع الصفقة</label>
-            {DEAL_TYPES.map(dt=>(
-              <div key={dt.key} onClick={()=>setData({...data,dealType:dt.key})}
-                style={{ background:data.dealType===dt.key?dt.color+"22":"#0f172a", border:`2px solid ${data.dealType===dt.key?dt.color:"#334155"}`, borderRadius:10, padding:"8px 12px", cursor:"pointer", marginTop:6 }}>
-                <div style={{ color:data.dealType===dt.key?dt.color:"#e2e8f0", fontWeight:700, fontSize:13 }}>{dt.icon} {dt.label}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button onClick={onSave} style={S.btn}>حفظ</button>
-            <button onClick={onClose} style={{...S.btn,background:"#334155"}}>إلغاء</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (!currentUser) return <LoginScreen onLogin={setCurrentUser} />;
+
+  const pendingCount = pendingRequests.length;
 
   return (
     <div style={S.root}>
@@ -322,10 +433,25 @@ export default function App() {
           <div style={S.headerTitle}>🏆 نظام الكوميشنز</div>
           <div style={S.headerSub}>Rhythm Integrated Solutions</div>
         </div>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          <button onClick={()=>setShowAddBonus(true)} style={{...S.btn,background:"#7c3aed"}}>🌟 بونص</button>
-          <button onClick={()=>setShowAddDeal(true)}  style={S.btn}>+ صفقة</button>
-          <button onClick={()=>setShowAddAgent(true)} style={{...S.btn,background:"#0f766e"}}>+ مندوب</button>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+          {/* user badge */}
+          <div style={{ background:"#1e293b", borderRadius:10, padding:"8px 14px", display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:18 }}>{isAdmin?"👑":"👤"}</span>
+            <div>
+              <div style={{ color:"#f1f5f9", fontSize:13, fontWeight:700 }}>{currentUser.name}</div>
+              <div style={{ color: isAdmin?"#f59e0b":"#3b82f6", fontSize:11 }}>{isAdmin?"مدير":"موظف"}</div>
+            </div>
+          </div>
+          {isAdmin && <>
+            <button onClick={()=>setShowAddBonus(true)} style={{...S.btn,background:"#7c3aed"}}>🌟 بونص</button>
+            <button onClick={()=>setShowAddDeal(true)}  style={S.btn}>+ صفقة</button>
+            <button onClick={()=>setShowAddAgent(true)} style={{...S.btn,background:"#0f766e"}}>+ مندوب</button>
+          </>}
+          {!isAdmin && <>
+            <button onClick={()=>setShowAddBonus(true)} style={{...S.btn,background:"#7c3aed"}}>🌟 تسجيل بونص</button>
+            <button onClick={()=>setShowAddDeal(true)}  style={S.btn}>+ تسجيل صفقة</button>
+          </>}
+          <button onClick={()=>setCurrentUser(null)} style={{...S.btn,background:"#334155"}}>خروج</button>
         </div>
       </div>
 
@@ -347,8 +473,17 @@ export default function App() {
 
       {/* Nav */}
       <div style={S.nav}>
-        {[["dashboard","📊 الرئيسية"],["deals","📋 الصفقات"],["bonuses","🌟 بونص"],["agents","👥 المندوبين"],["settings","⚙️ الإعدادات"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setTab(k)} style={S.navBtn(tab===k)}>{l}</button>
+        {[
+          ["dashboard","📊 الرئيسية"],
+          ["deals","📋 الصفقات"],
+          ["bonuses","🌟 بونص"],
+          ["agents","👥 المندوبين"],
+          ...(isAdmin ? [["approvals", pendingCount>0?`✅ موافقات (${pendingCount})`:"✅ موافقات"], ["settings","⚙️ الإعدادات"]] : []),
+        ].map(([k,l])=>(
+          <button key={k} onClick={()=>setTab(k)} style={{
+            ...S.navBtn(tab===k),
+            ...(k==="approvals"&&pendingCount>0?{background:tab===k?"#d97706":"#78350f",color:"#fbbf24"}:{})
+          }}>{l}</button>
         ))}
       </div>
 
@@ -413,22 +548,20 @@ export default function App() {
                     </div>
                     <div style={{ color:"#475569", fontSize:11, marginTop:4 }}>📅 {d.startDate} ← {d.endDate}</div>
                   </div>
-                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>
+                  <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap", justifyContent:"flex-end" }}>
                     {statusBadge(d)}
                     <button onClick={()=>setShowDealDetail(d)} style={{...S.payBtn,background:"#1d4ed8"}}>📊 تفاصيل</button>
-                    <button onClick={()=>setShowEditDeal({...d})} style={{...S.payBtn,background:"#334155"}}>✏️ تعديل</button>
-                    <button onClick={()=>delDeal(d.id)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑 حذف</button>
-                    {d.eligible&&!d.paid&&<button onClick={()=>markPaid(d.id)} style={S.payBtn}>صرف</button>}
+                    <button onClick={()=>setShowEditDeal({...d})} style={{...S.payBtn,background:"#334155"}}>
+                      {isAdmin?"✏️ تعديل":"📝 طلب تعديل"}
+                    </button>
+                    <button onClick={()=>{ if(!window.confirm("حذف الصفقة؟")) return; handleDeleteDeal(d.id); }} style={{...S.payBtn,background:"#7f1d1d"}}>
+                      {isAdmin?"🗑 حذف":"🗑 طلب حذف"}
+                    </button>
+                    {isAdmin&&d.eligible&&!d.paid&&<button onClick={()=>markPaid(d.id)} style={S.payBtn}>صرف</button>}
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:8, background:"#0f172a", borderRadius:10, padding:"10px 8px", flexWrap:"wrap" }}>
-                  {[
-                    ["قيمة البيع", fmt(d.saleValue)+" ج", "#94a3b8"],
-                    ["المحصَّل",   fmt(d.collected)+" ج", "#10b981"],
-                    ["الأساسي",   d.collected>=d.saleValue?fmt(d.base)+" ج":"—","#94a3b8"],
-                    ["بعد النوع", d.collected>=d.saleValue?fmt(d.afterDT)+" ج":"—","#c084fc"],
-                    ["الكوميشن",  d.collected>=d.saleValue?fmt(d.finalC)+" ج":"—",d.eligible?"#f59e0b":"#475569"],
-                  ].map(([l,v,c])=>(
+                  {[["قيمة البيع",fmt(d.saleValue)+" ج","#94a3b8"],["المحصَّل",fmt(d.collected)+" ج","#10b981"],["الأساسي",d.collected>=d.saleValue?fmt(d.base)+" ج":"—","#94a3b8"],["بعد النوع",d.collected>=d.saleValue?fmt(d.afterDT)+" ج":"—","#c084fc"],["الكوميشن",d.collected>=d.saleValue?fmt(d.finalC)+" ج":"—",d.eligible?"#f59e0b":"#475569"]].map(([l,v,c])=>(
                     <div key={l} style={{ textAlign:"center", flex:1, minWidth:70 }}>
                       <div style={{ color:"#475569", fontSize:10, marginBottom:3 }}>{l}</div>
                       <div style={{ color:c, fontSize:13, fontWeight:700 }}>{v}</div>
@@ -463,10 +596,16 @@ export default function App() {
                     <div style={{ fontWeight:700, color:"#f1f5f9" }}>{b.clientName}</div>
                     <div style={{ color:"#64748b", fontSize:12, marginTop:3 }}>👤 {b.agName} · <span style={{ color:"#a78bfa" }}>{b.code}</span></div>
                   </div>
-                  <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                  <div style={{ display:"flex", gap:8, alignItems:"center", flexWrap:"wrap" }}>
                     {b.bonusPaid?<span style={S.badge("paid")}>✓ مصروف</span>
-                      :b.eligible?<><span style={S.badge("bonus")}>🌟 مستحق</span><button onClick={()=>markBonusPaid(b.code)} style={{...S.payBtn,background:"#7c3aed"}}>صرف</button></>
+                      :b.eligible?<><span style={S.badge("bonus")}>🌟 مستحق</span>{isAdmin&&<button onClick={()=>markBonusPaid(b.code)} style={{...S.payBtn,background:"#7c3aed"}}>صرف</button>}</>
                       :<span style={S.badge("notarget")}>⚠️ تحت الحد</span>}
+                    <button onClick={()=>setShowEditBonus({code:b.code, clientName:b.clientName, empId:b.empId, collected:String(b.collected)})} style={{...S.payBtn,background:"#334155"}}>
+                      {isAdmin?"✏️ تعديل":"📝 طلب تعديل"}
+                    </button>
+                    <button onClick={()=>{ if(!window.confirm("حذف البونص؟")) return; handleDeleteBonus(b.code); }} style={{...S.payBtn,background:"#7f1d1d"}}>
+                      {isAdmin?"🗑 حذف":"🗑 طلب حذف"}
+                    </button>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:12, background:"#0f172a", borderRadius:10, padding:"10px 8px", marginTop:12 }}>
@@ -489,7 +628,7 @@ export default function App() {
         <div style={S.section}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
             <div style={S.sectionTitle}>👥 إدارة المندوبين</div>
-            <button onClick={()=>setShowAddAgent(true)} style={{...S.btn,background:"#0f766e"}}>+ إضافة</button>
+            {isAdmin&&<button onClick={()=>setShowAddAgent(true)} style={{...S.btn,background:"#0f766e"}}>+ إضافة</button>}
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
             {agents.map(a=>{
@@ -510,8 +649,10 @@ export default function App() {
                       <div style={{ textAlign:"center" }}><div style={{ color:"#475569", fontSize:11 }}>تحصيل</div><div style={{ color:"#10b981", fontWeight:700 }}>{fmt(sum.totalCollected)} ج</div></div>
                       <div style={{ textAlign:"center" }}><div style={{ color:"#475569", fontSize:11 }}>كوميشن</div><div style={{ color:"#f59e0b", fontWeight:700 }}>{fmt(sum.pendingComm)} ج</div></div>
                     </>}
-                    <button onClick={()=>setShowEditAgent({...a})} style={{...S.payBtn,background:"#1d4ed8"}}>✏️ تعديل</button>
-                    <button onClick={()=>delAgent(a.empId)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑 حذف</button>
+                    {isAdmin&&<>
+                      <button onClick={()=>setShowEditAgent({...a})} style={{...S.payBtn,background:"#1d4ed8"}}>✏️ تعديل</button>
+                      <button onClick={()=>delAgent(a.empId)} style={{...S.payBtn,background:"#7f1d1d"}}>🗑 حذف</button>
+                    </>}
                   </div>
                 </div>
               );
@@ -520,8 +661,47 @@ export default function App() {
         </div>
       )}
 
-      {/* ── SETTINGS ── */}
-      {tab==="settings" && (
+      {/* ── APPROVALS (admin only) ── */}
+      {tab==="approvals" && isAdmin && (
+        <div style={S.section}>
+          <div style={S.sectionTitle}>✅ طلبات الموافقة ({pendingCount})</div>
+          {pendingCount===0 && <div style={{ textAlign:"center", color:"#475569", padding:"30px 0" }}>لا توجد طلبات معلّقة ✅</div>}
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            {pendingRequests.map(req=>{
+              const typeLabel = req.type==="edit_deal"?"تعديل صفقة":req.type==="delete_deal"?"حذف صفقة":req.type==="edit_bonus"?"تعديل بونص":"حذف بونص";
+              const deal = req.type.includes("deal") ? deals.find(d=>d.id===req.targetId) : null;
+              const bonus = req.type.includes("bonus") ? acqBonuses[req.targetId] : null;
+              return (
+                <div key={req.id} style={{ background:"#0f172a", border:"1px solid #d97706", borderRadius:14, padding:16 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:8 }}>
+                    <div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:6 }}>
+                        <span style={{ background:"#d9770622", color:"#f59e0b", border:"1px solid #d97706", borderRadius:10, padding:"2px 10px", fontSize:12, fontWeight:700 }}>{typeLabel}</span>
+                        <span style={{ color:"#94a3b8", fontSize:12 }}>من: <b style={{ color:"#e2e8f0" }}>{req.requestedBy}</b></span>
+                        <span style={{ color:"#475569", fontSize:11 }}>{req.requestedAt}</span>
+                      </div>
+                      {deal&&<div style={{ color:"#94a3b8", fontSize:13 }}>المشروع: <b style={{ color:"#f1f5f9" }}>{req.payload?.project||deal?.project}</b></div>}
+                      {bonus&&<div style={{ color:"#94a3b8", fontSize:13 }}>العميل: <b style={{ color:"#f1f5f9" }}>{bonus?.clientName}</b> · كود: {req.targetId}</div>}
+                      {req.type.includes("edit")&&req.payload&&(
+                        <div style={{ color:"#64748b", fontSize:12, marginTop:4 }}>
+                          {req.type==="edit_deal"?`قيمة: ${fmt(+req.payload.saleValue)} ج · تحصيل: ${fmt(+req.payload.collected)} ج`:`تحصيل جديد: ${fmt(+req.payload.collected)} ج`}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>approveRequest(req)} style={{...S.payBtn,background:"#16a34a"}}>✅ موافقة</button>
+                      <button onClick={()=>rejectRequest(req.id)} style={{...S.payBtn,background:"#7f1d1d"}}>❌ رفض</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── SETTINGS (admin only) ── */}
+      {tab==="settings" && isAdmin && (
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           <div style={S.section}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
@@ -547,32 +727,59 @@ export default function App() {
               </div>
             ))}
           </div>
+          <div style={{ background:"#1e293b", borderRadius:12, padding:16 }}>
+            <div style={S.sectionTitle}>👤 إضافة يوزر جديد</div>
+            <div style={{ color:"#64748b", fontSize:13, lineHeight:1.8 }}>
+              لإضافة موظف جديد، اضف في ملف <code style={{ color:"#60a5fa" }}>App.jsx</code> جوّا مصفوفة <code style={{ color:"#60a5fa" }}>USERS</code>:<br/>
+              <code style={{ color:"#a78bfa", fontSize:12 }}>{`{ username: "emp1", role: "employee", name: "اسم الموظف", hash: "..." }`}</code><br/><br/>
+              الهاش: ادخل على أي موقع SHA-256 calculator واحسب:<br/>
+              <code style={{ color:"#10b981" }}>SHA256("RhythmIS2026" + "الباسورد")</code>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* ── تفاصيل الصفقة ── */}
+      {/* ── Modals ── */}
       {showDealDetail && <DealDetail deal={showDealDetail} agents={agents} tiers={tiers} targetTiers={targetTiers} onClose={()=>setShowDealDetail(null)} />}
+      {showAddDeal    && <DealForm data={newDeal} setData={setNewDeal} onSave={addDeal} onClose={()=>setShowAddDeal(false)} title="➕ صفقة جديدة" agents={agents} />}
+      {showEditDeal   && <DealForm data={showEditDeal} setData={setShowEditDeal} onSave={()=>handleEditDeal(showEditDeal)} onClose={()=>setShowEditDeal(null)} title={isAdmin?"✏️ تعديل الصفقة":"📝 طلب تعديل الصفقة"} agents={agents} />}
 
-      {/* ── إضافة صفقة ── */}
-      {showAddDeal && <DealForm data={newDeal} setData={setNewDeal} onSave={addDeal} onClose={()=>setShowAddDeal(false)} title="➕ صفقة جديدة" />}
+      {/* تعديل بونص */}
+      {showEditBonus && (
+        <div style={S.overlay} onClick={()=>setShowEditBonus(null)}>
+          <div style={S.modal} onClick={e=>e.stopPropagation()}>
+            <div style={S.modalTitle}>{isAdmin?"✏️ تعديل البونص":"📝 طلب تعديل البونص"}</div>
+            <div style={{ marginBottom:10 }}><label style={S.label}>المندوب</label>
+              <select value={showEditBonus.empId} onChange={e=>setShowEditBonus({...showEditBonus,empId:e.target.value})} style={S.input}>
+                {agents.map(a=><option key={a.empId} value={a.empId}>{a.empId} — {a.name}</option>)}
+              </select>
+            </div>
+            {[["clientName","اسم العميل","text"],["collected","إجمالي التحصيل (ج)","number"]].map(([k,l,t])=>(
+              <div key={k} style={{ marginBottom:10 }}><label style={S.label}>{l}</label>
+                <input type={t} value={showEditBonus[k]||""} onChange={e=>setShowEditBonus({...showEditBonus,[k]:e.target.value})} style={S.input} /></div>
+            ))}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>handleEditBonus(showEditBonus.code, showEditBonus)} style={{...S.btn,background:"#7c3aed"}}>{isAdmin?"حفظ":"إرسال للمدير"}</button>
+              <button onClick={()=>setShowEditBonus(null)} style={{...S.btn,background:"#334155"}}>إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* ── تعديل صفقة ── */}
-      {showEditDeal && <DealForm data={showEditDeal} setData={setShowEditDeal} onSave={()=>saveDeal(showEditDeal)} onClose={()=>setShowEditDeal(null)} title="✏️ تعديل الصفقة" />}
-
-      {/* ── إضافة مندوب ── */}
+      {/* إضافة مندوب */}
       {showAddAgent && (
         <div style={S.overlay} onClick={()=>setShowAddAgent(false)}>
           <div style={S.modal} onClick={e=>e.stopPropagation()}>
             <div style={S.modalTitle}>👤 مندوب جديد</div>
             {[["empId","رقم الموظف (EMP-XXX)","text"],["name","الاسم","text"],["monthlyTarget","التارجت الشهري (ج)","number"]].map(([k,l,t])=>(
-              <div key={k} style={{ marginBottom:10 }}><label style={S.label}>{l}</label><input type={t} value={newAgent[k]} onChange={e=>setNewAgent({...newAgent,[k]:e.target.value})} style={S.input} placeholder={l} /></div>
+              <div key={k} style={{ marginBottom:10 }}><label style={S.label}>{l}</label><input type={t} value={newAgent[k]} onChange={e=>setNewAgent({...newAgent,[k]:e.target.value})} style={S.input} /></div>
             ))}
             <div style={{ display:"flex", gap:10 }}><button onClick={addAgent} style={{...S.btn,background:"#0f766e"}}>إضافة</button><button onClick={()=>setShowAddAgent(false)} style={{...S.btn,background:"#334155"}}>إلغاء</button></div>
           </div>
         </div>
       )}
 
-      {/* ── تعديل مندوب ── */}
+      {/* تعديل مندوب */}
       {showEditAgent && (
         <div style={S.overlay} onClick={()=>setShowEditAgent(null)}>
           <div style={S.modal} onClick={e=>e.stopPropagation()}>
@@ -585,7 +792,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── بونص إحضار ── */}
+      {/* إضافة بونص */}
       {showAddBonus && (
         <div style={S.overlay} onClick={()=>setShowAddBonus(false)}>
           <div style={S.modal} onClick={e=>e.stopPropagation()}>
@@ -606,7 +813,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── شرائح التارجت ── */}
+      {/* شرائح التارجت */}
       {showTgtTierEd && (
         <div style={S.overlay} onClick={()=>setShowTgtTierEd(false)}>
           <div style={S.modal} onClick={e=>e.stopPropagation()}>
@@ -626,7 +833,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── شرائح العمولة ── */}
+      {/* شرائح العمولة */}
       {showTierEd && (
         <div style={S.overlay} onClick={()=>setShowTierEd(false)}>
           <div style={S.modal} onClick={e=>e.stopPropagation()}>
